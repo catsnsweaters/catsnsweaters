@@ -3,23 +3,85 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-const EXPECTED_COLUMNS = ['name', 'email', 'phone', 'nationality', 'passportNumber', 'visaType', 'status', 'notes']
-
-function parseCSV(text: string) {
-  const lines = text.trim().split('\n')
-  if (lines.length < 2) return []
-  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''))
-  return lines.slice(1).map((line) => {
-    const values = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''))
-    const row: Record<string, string> = {}
-    headers.forEach((h, i) => { row[h] = values[i] || '' })
-    return row
-  })
+const COLUMN_MAP: Record<string, string> = {
+  'Клиент (ФИО)': 'name',
+  'Актуальные задачи': 'task',
+  'Тип (найм / ИП)': 'visaType',
+  'Членов семьи (0, 1, 2...)': 'familyMembers',
+  'Статус кейса': 'status',
+  'Предп. дата подачи': 'submissionDate',
+  'Комментарии': 'notes',
 }
+
+const STATUS_MAP: Record<string, string> = {
+  'Собираем документы': 'In Progress',
+  'Готов к подаче': 'Submitted',
+  'Ожидание решения': 'On Hold',
+  'Отказ': 'Rejected',
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++ }
+      else inQuotes = !inQuotes
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current.trim())
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  result.push(current.trim())
+  return result
+}
+
+function stripEmoji(str: string): string {
+  return str.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').trim()
+}
+
+function parseSheet(text: string) {
+  const lines = text.trim().split('\n').filter(Boolean)
+  // Row 0 is the title, row 1 is headers, rows 2+ are data
+  if (lines.length < 3) return []
+  const headers = parseCSVLine(lines[1])
+
+  return lines.slice(2).map((line) => {
+    const values = parseCSVLine(line)
+    const raw: Record<string, string> = {}
+    headers.forEach((h, i) => {
+      const key = COLUMN_MAP[h.trim()]
+      if (key) raw[key] = values[i] || ''
+    })
+
+    const statusRaw = stripEmoji(raw.status || '')
+    const status = STATUS_MAP[statusRaw] ?? 'In Progress'
+
+    const notesParts = [
+      raw.notes,
+      raw.submissionDate ? `Предп. дата подачи: ${raw.submissionDate}` : '',
+      raw.familyMembers ? `Членов семьи: ${raw.familyMembers}` : '',
+    ].filter(Boolean)
+
+    return {
+      name: raw.name || '',
+      visaType: raw.visaType || null,
+      status,
+      notes: notesParts.join(' | ') || null,
+      task: raw.task || null,
+    }
+  }).filter((r) => r.name)
+}
+
+type ParsedRow = ReturnType<typeof parseSheet>[number]
 
 export default function ImportPage() {
   const router = useRouter()
-  const [preview, setPreview] = useState<Record<string, string>[]>([])
+  const [preview, setPreview] = useState<ParsedRow[]>([])
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState('')
@@ -32,12 +94,11 @@ export default function ImportPage() {
     const reader = new FileReader()
     reader.onload = (ev) => {
       const text = ev.target?.result as string
-      const rows = parseCSV(text)
-      if (rows.length === 0) { setError('No data found in CSV'); return }
-      if (!rows[0].name) { setError('CSV must have a "name" column'); return }
+      const rows = parseSheet(text)
+      if (rows.length === 0) { setError('No client rows found. Make sure row 1 is a title, row 2 has column headers including "Клиент (ФИО)".'); return }
       setPreview(rows)
     }
-    reader.readAsText(file)
+    reader.readAsText(file, 'utf-8')
   }
 
   async function handleImport() {
@@ -54,11 +115,10 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="p-8 max-w-3xl">
-      <h2 className="text-2xl font-bold text-slate-800 mb-2">Import from CSV</h2>
+    <div className="p-8 max-w-4xl">
+      <h2 className="text-2xl font-bold text-slate-800 mb-2">Import from Google Sheets</h2>
       <p className="text-slate-500 text-sm mb-6">
-        Upload a CSV exported from Google Sheets. Required column: <code className="bg-slate-100 px-1 rounded">name</code>.
-        Optional: {EXPECTED_COLUMNS.slice(1).join(', ')}.
+        Export your Nomad Digital tracker as CSV and upload it here. Client name, visa type, status, comments, and current tasks will be imported.
       </p>
 
       <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
@@ -75,7 +135,7 @@ export default function ImportPage() {
       {preview.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden mb-6">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-700">Preview ({preview.length} rows)</h3>
+            <h3 className="font-semibold text-slate-700">Preview ({preview.length} clients)</h3>
             <button
               onClick={handleImport}
               disabled={importing}
@@ -88,24 +148,24 @@ export default function ImportPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {Object.keys(preview[0]).map((h) => (
+                  {['Name', 'Visa Type', 'Status', 'Task', 'Notes'].map((h) => (
                     <th key={h} className="px-4 py-2 text-left text-xs font-semibold text-slate-500 uppercase">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {preview.slice(0, 5).map((row, i) => (
+                {preview.slice(0, 8).map((row, i) => (
                   <tr key={i}>
-                    {Object.values(row).map((v, j) => (
-                      <td key={j} className="px-4 py-2 text-slate-600 truncate max-w-32">{v || '—'}</td>
-                    ))}
+                    <td className="px-4 py-2 font-medium text-slate-800">{row.name}</td>
+                    <td className="px-4 py-2 text-slate-600">{row.visaType || '—'}</td>
+                    <td className="px-4 py-2 text-slate-600">{row.status}</td>
+                    <td className="px-4 py-2 text-slate-600 max-w-48 truncate">{row.task || '—'}</td>
+                    <td className="px-4 py-2 text-slate-500 max-w-48 truncate text-xs">{row.notes || '—'}</td>
                   </tr>
                 ))}
-                {preview.length > 5 && (
+                {preview.length > 8 && (
                   <tr>
-                    <td colSpan={Object.keys(preview[0]).length} className="px-4 py-2 text-slate-400 text-xs">
-                      ...and {preview.length - 5} more rows
-                    </td>
+                    <td colSpan={5} className="px-4 py-2 text-slate-400 text-xs">...and {preview.length - 8} more</td>
                   </tr>
                 )}
               </tbody>
@@ -121,11 +181,10 @@ export default function ImportPage() {
       )}
 
       <div className="bg-slate-50 rounded-xl border border-slate-200 p-5 mt-6">
-        <h4 className="font-semibold text-slate-700 text-sm mb-2">How to export from Google Sheets</h4>
+        <h4 className="font-semibold text-slate-700 text-sm mb-2">How to export</h4>
         <ol className="text-sm text-slate-600 space-y-1 list-decimal list-inside">
           <li>Open your Google Sheet</li>
           <li>Go to <strong>File → Download → Comma Separated Values (.csv)</strong></li>
-          <li>Make sure the first row contains column headers</li>
           <li>Upload the downloaded file above</li>
         </ol>
       </div>
