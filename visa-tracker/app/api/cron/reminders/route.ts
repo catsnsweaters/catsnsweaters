@@ -8,28 +8,45 @@ export async function GET(request: Request) {
   }
 
   const now = new Date()
-  const in2days = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000)
 
-  const dueTasks = await prisma.task.findMany({
-    where: {
-      completed: false,
-      reminderSent: false,
-      dueDate: { lte: in2days },
-    },
+  const tasks = await prisma.task.findMany({
+    where: { completed: false },
     include: { client: true },
+    orderBy: [{ client: { name: 'asc' } }, { dueDate: 'asc' }],
   })
 
-  for (const task of dueTasks) {
-    const dueDate = task.dueDate ? new Date(task.dueDate).toLocaleDateString('en-GB') : 'no date'
-    const isOverdue = task.dueDate && new Date(task.dueDate) < now
-    const emoji = isOverdue ? '🔴' : '🟡'
-    await sendTelegramMessage(
-      `${emoji} <b>${isOverdue ? 'OVERDUE' : 'Due soon'}</b>: ${task.title}\n` +
-      `👤 Client: ${task.client.name}\n` +
-      `📅 Due: ${dueDate}`
-    )
-    await prisma.task.update({ where: { id: task.id }, data: { reminderSent: true } })
+  if (tasks.length === 0) {
+    await sendTelegramMessage('✅ No open tasks today.')
+    return Response.json({ sent: 0 })
   }
 
-  return Response.json({ sent: dueTasks.length })
+  // Group by client
+  const byClient = new Map<string, typeof tasks>()
+  for (const task of tasks) {
+    const key = task.client.name
+    if (!byClient.has(key)) byClient.set(key, [])
+    byClient.get(key)!.push(task)
+  }
+
+  const today = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  let message = `📋 <b>Задачи на ${today}</b>\n\n`
+
+  for (const [clientName, clientTasks] of byClient) {
+    message += `👤 <b>${clientName}</b>\n`
+    for (const task of clientTasks) {
+      const due = task.dueDate ? new Date(task.dueDate) : null
+      const overdue = due && due < now
+      const duePart = due
+        ? ` — ${overdue ? '🔴 просрочено' : '📅 ' + due.toLocaleDateString('ru-RU')}`
+        : ''
+      message += `  • ${task.title}${duePart}\n`
+    }
+    message += '\n'
+  }
+
+  message += `Всего открытых задач: ${tasks.length}`
+
+  await sendTelegramMessage(message)
+
+  return Response.json({ sent: tasks.length })
 }
