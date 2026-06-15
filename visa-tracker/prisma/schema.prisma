@@ -1,0 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Client {
+  id             String   @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  nationality    String?
+  passportNumber String?
+  visaType       String?
+  status         String   @default("In Progress")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  tasks          Task[]
+  updates        Update[]
+}
+
+model Task {
+  id           String    @id @default(cuid())
+  clientId     String
+  title        String
+  description  String?
+  dueDate      DateTime?
+  completed    Boolean   @default(false)
+  reminderSent Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  client       Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Update {
+  id        String   @id @default(cuid())
+  clientId  String
+  content   String
+  createdAt DateTime @default(now())
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
