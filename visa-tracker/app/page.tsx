@@ -2,6 +2,8 @@ import { prisma } from '@/lib/db'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 
+export const dynamic = 'force-dynamic'
+
 const STATUS_COLORS: Record<string, string> = {
   'In Progress': 'bg-blue-100 text-blue-700',
   'Submitted': 'bg-yellow-100 text-yellow-700',
