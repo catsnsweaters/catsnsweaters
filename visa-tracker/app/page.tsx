@@ -29,8 +29,8 @@ export default async function DashboardPage() {
 
   const stats = {
     total: clients.length,
-    inProgress: clients.filter((c: (typeof clients)[0]) => c.status === 'In Progress').length,
-    approved: clients.filter((c: (typeof clients)[0]) => c.status === 'Approved').length,
+    inProgress: clients.filter((c) => c.status === 'In Progress').length,
+    approved: clients.filter((c) => c.status === 'Approved').length,
     tasksDue: upcomingTasks.length,
   }
 
@@ -97,7 +97,7 @@ export default async function DashboardPage() {
           </p>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {clients.slice(0, 5).map((client: (typeof clients)[0]) => (
+            {clients.slice(0, 5).map((client) => (
               <li key={client.id} className="px-6 py-4 flex items-center justify-between">
                 <Link href={`/clients/${client.id}`} className="font-medium text-slate-800 hover:text-blue-600">
                   {client.name}

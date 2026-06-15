@@ -85,7 +85,7 @@ export default async function ClientsPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {clients.map((client: (typeof clients)[0]) => (
+              {clients.map((client) => (
                 <tr key={client.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3">
                     <Link href={`/clients/${client.id}`} className="font-medium text-slate-800 hover:text-blue-600">
